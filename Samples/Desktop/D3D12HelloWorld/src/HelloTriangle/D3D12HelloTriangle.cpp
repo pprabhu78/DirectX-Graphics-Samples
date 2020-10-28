@@ -197,8 +197,7 @@ void D3D12HelloTriangle::CreateRaytracingPipeline(void)
 	// be obtained using float3 barycentrics = float3(1.f-u-v, u, v);
 	pipeLineGenerator.SetMaxAttributeSize(2 * sizeof(float)); // barycentric coordinates
 
-
-	// The raytracing process can shoot rays from existing hit points, resulting
+	// The ray tracing process can shoot rays from existing hit points, resulting
 	// in nested TraceRay calls. Our sample code traces only primary rays, which
 	// then requires a trace depth of 1. Note that this recursion depth should be
 	// kept to a minimum for best performance. Path tracing algorithms can be
@@ -208,6 +207,59 @@ void D3D12HelloTriangle::CreateRaytracingPipeline(void)
 	myRayTracingStateObject = pipeLineGenerator.Generate();
 
 	myRayTracingStateObject->QueryInterface(IID_PPV_ARGS(&myRayTracingStateObjectProperties));
+}
+
+void D3D12HelloTriangle::CreateRaytracingOutputBuffer()
+{
+	D3D12_RESOURCE_DESC resDesc = {};
+	resDesc.DepthOrArraySize = 1;
+	resDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	// The back buffer is actually DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, but sRGB
+	// formats cannot be used with UAVs. For accuracy we should convert to sRGB
+	// ourselves in the shader
+	resDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+	resDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+	resDesc.Width = GetWidth();
+	resDesc.Height = GetHeight();
+	resDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	resDesc.MipLevels = 1;
+	resDesc.SampleDesc.Count = 1;
+	ThrowIfFailed(myDevice->CreateCommittedResource(
+		&nv_helpers_dx12::kDefaultHeapProps, D3D12_HEAP_FLAG_NONE, &resDesc,
+		D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr,
+		IID_PPV_ARGS(&m_outputResource)));
+}
+
+void D3D12HelloTriangle::CreateShaderResourceHeap(void)
+{
+	mySrvHeap = nv_helpers_dx12::CreateDescriptorHeap(
+		myDevice.Get(), 2, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true);
+
+	// Get a handle to the heap memory on the CPU side, to be able to write the
+	// descriptors directly
+	D3D12_CPU_DESCRIPTOR_HANDLE srvHandle =
+		mySrvHeap->GetCPUDescriptorHandleForHeapStart();
+
+	// Create the UAV. Based on the root signature we created it is the first
+	// entry. The Create*View methods write the view information directly into
+	// srvHandle
+	D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+	uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+	myDevice->CreateUnorderedAccessView(m_outputResource.Get(), nullptr, &uavDesc,
+		srvHandle);
+
+	// Add the Top Level AS SRV right after the raytracing output buffer
+	srvHandle.ptr += myDevice->GetDescriptorHandleIncrementSize(
+		D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc;
+	srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.RaytracingAccelerationStructure.Location =
+		myTLAS.pResult->GetGPUVirtualAddress();
+	// Write the acceleration structure view in the heap
+	myDevice->CreateShaderResourceView(nullptr, &srvDesc, srvHandle);
 }
 
 void D3D12HelloTriangle::OnInit()
@@ -221,6 +273,10 @@ void D3D12HelloTriangle::OnInit()
     CreateAccelerationStructures();
 
 	CreateRaytracingPipeline();
+
+	CreateRaytracingOutputBuffer();
+
+	CreateShaderResourceHeap();
 
 	// Command lists are created in the recording state, but there is nothing
     // to record yet. The main loop expects it to be closed, so close it now.

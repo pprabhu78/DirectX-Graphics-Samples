@@ -98,8 +98,6 @@ private:
 
     void CreateTopLevelAS(VectorInstances& instances);
 
-    // The actual TLAS
-    ComPtr< ID3D12Resource> myTopLevelAccelerationStructure;
 
     AccelerationStructureBuffer myTLAS;
 
@@ -126,4 +124,10 @@ private:
 	ComPtr<ID3D12StateObjectProperties> myRayTracingStateObjectProperties;
 
 	void CreateRaytracingPipeline(void);
+
+	void CreateRaytracingOutputBuffer();
+	ComPtr<ID3D12Resource> m_outputResource;
+
+	void CreateShaderResourceHeap(void);
+	ComPtr<ID3D12DescriptorHeap> mySrvHeap;
 };
