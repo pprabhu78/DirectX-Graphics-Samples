@@ -11,20 +11,193 @@
 
 #include "stdafx.h"
 #include "D3D12HelloTriangle.h"
+#include "DXRHelper.h"
+#include <iostream>
+
+#include "RaytracingPipelineGenerator.h"
+#include "RootSignatureGenerator.h"
 
 D3D12HelloTriangle::D3D12HelloTriangle(UINT width, UINT height, std::wstring name) :
     DXSample(width, height, name),
     m_frameIndex(0),
     m_viewport(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)),
     m_scissorRect(0, 0, static_cast<LONG>(width), static_cast<LONG>(height)),
-    m_rtvDescriptorSize(0)
+    m_rtvDescriptorSize(0),
+   m_raster(true)
+
 {
+}
+
+D3D12HelloTriangle::AccelerationStructureBuffer D3D12HelloTriangle::createBottomLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t>> vVertexBuffers)
+{
+   nv_helpers_dx12::BottomLevelASGenerator generator;
+   // Adding all vertex buffers and not transforming their position.
+   for (const auto &buffer : vVertexBuffers) {
+      generator.AddVertexBuffer(buffer.first.Get(), 0, buffer.second,
+         sizeof(Vertex), 0, 0);
+   }
+
+   std::uint64_t scratchSizeInBytes = 0;
+   std::uint64_t resultSizeInBytes = 0;
+
+   generator.ComputeASBufferSizes(myDevice.Get(), false, &scratchSizeInBytes, &resultSizeInBytes);
+
+   AccelerationStructureBuffer buffers;
+
+   buffers.pScratch = nv_helpers_dx12::CreateBuffer(
+      myDevice.Get(), scratchSizeInBytes,
+      D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON,
+      nv_helpers_dx12::kDefaultHeapProps);
+
+   buffers.pResult = nv_helpers_dx12::CreateBuffer(
+      myDevice.Get(), resultSizeInBytes,
+      D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+      nv_helpers_dx12::kDefaultHeapProps);
+
+   generator.Generate(m_commandList.Get()
+      , buffers.pScratch.Get(), buffers.pResult.Get()
+      , false, nullptr);
+
+   return buffers;
+}
+
+void D3D12HelloTriangle::CreateTopLevelAS(VectorInstances& instances)
+{
+   for (int i = 0; i < instances.size(); ++i)
+   {
+      const std::pair< ComPtr<ID3D12Resource>, DirectX::XMMATRIX >& instance = instances[i];
+      myTopLevelGenerator.AddInstance(instance.first.Get(), instance.second, i, 0);
+   }
+
+   std::uint64_t scratchSizeInBytes = 0;
+   std::uint64_t resultSizeInBytes = 0;
+   std::uint64_t instanceDescsSize = 0;
+
+   myTopLevelGenerator.ComputeASBufferSizes(myDevice.Get(), true, &scratchSizeInBytes, &resultSizeInBytes, &instanceDescsSize);
+
+   myTLAS.pScratch = nv_helpers_dx12::CreateBuffer(
+      myDevice.Get(), resultSizeInBytes,
+      D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+      nv_helpers_dx12::kDefaultHeapProps);
+
+   myTLAS.pResult = nv_helpers_dx12::CreateBuffer(
+      myDevice.Get(), resultSizeInBytes,
+      D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+
+      nv_helpers_dx12::kDefaultHeapProps);
+
+   myTLAS.pInstanceDesc = nv_helpers_dx12::CreateBuffer(
+      myDevice.Get(), instanceDescsSize, D3D12_RESOURCE_FLAG_NONE,
+      D3D12_RESOURCE_STATE_GENERIC_READ, nv_helpers_dx12::kUploadHeapProps);
+
+   myTopLevelGenerator.Generate(m_commandList.Get()
+      , myTLAS.pScratch.Get(), myTLAS.pResult.Get(), myTLAS.pInstanceDesc.Get(), nullptr);
+}
+
+void D3D12HelloTriangle::CreateAccelerationStructures()
+{
+   AccelerationStructureBuffer blas = createBottomLevelAS({ { m_vertexBuffer.Get(), 3 } });
+   myInstances = { {blas.pResult, XMMatrixIdentity()} };
+   CreateTopLevelAS(myInstances);
+
+   // Flush the command list and wait for it to finish
+   m_commandList->Close();
+   ID3D12CommandList *ppCommandLists[] = { m_commandList.Get() };
+   m_commandQueue->ExecuteCommandLists(1, ppCommandLists);
+   m_fenceValue++;
+   m_commandQueue->Signal(m_fence.Get(), m_fenceValue);
+
+   m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent);
+   WaitForSingleObject(m_fenceEvent, INFINITE);
+
+   // Once the command list is finished executing, reset it to be reused for
+   // rendering
+   ThrowIfFailed(
+      m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
+
+   // Store the AS buffers. The rest of the buffers will be released once we exit
+   // the function
+   myBlas = blas.pResult;
+}
+
+ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateRayGenSignature(void)
+{
+	nv_helpers_dx12::RootSignatureGenerator generator;
+	generator.AddHeapRangesParameter({
+		{ 0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0}
+	  , { 0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1 }
+		}
+	);
+	return generator.Generate(myDevice.Get(), true);
+}
+
+//-----------------------------------------------------------------------------
+// The hit shader communicates only through the ray payload, and therefore does
+// not require any resources
+//
+ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateHitSignature(void)
+{
+	nv_helpers_dx12::RootSignatureGenerator generator;
+	return generator.Generate(myDevice.Get(), true);
+}
+
+//-----------------------------------------------------------------------------
+// The miss shader communicates only through the ray payload, and therefore
+// does not require any resources
+//
+ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateMissSignature(void)
+{
+	nv_helpers_dx12::RootSignatureGenerator generator;
+	return generator.Generate(myDevice.Get(), true);
+}
+
+void D3D12HelloTriangle::CreateRaytracingPipeline(void)
+{
+	// The pipeline contains the DXIL code of all the shaders potentially executed
+	// during the raytracing process. This section compiles the HLSL code into a
+	// set of DXIL libraries. We chose to separate the code in several libraries
+	// by semantic (ray generation, hit, miss) for clarity. Any code layout can be
+	// used.
+	myRayGenLibrary = nv_helpers_dx12::CompileShaderLibrary(L"RayGen.hlsl");
+	myHitLibrary = nv_helpers_dx12::CompileShaderLibrary(L"Hit.hlsl");
+	myMissLibrary = nv_helpers_dx12::CompileShaderLibrary(L"Miss.hlsl");
+
+	nv_helpers_dx12::RayTracingPipelineGenerator pipeline(myDevice.Get());
 }
 
 void D3D12HelloTriangle::OnInit()
 {
     LoadPipeline();
     LoadAssets();
+    CheckRaytracingSupport();
+
+    // Setup the acceleration structures (AS) for raytracing. When setting up
+    // geometry, each bottom-level AS has its own transform matrix.
+    CreateAccelerationStructures();
+
+	// Command lists are created in the recording state, but there is nothing
+    // to record yet. The main loop expects it to be closed, so close it now.
+    ThrowIfFailed(m_commandList->Close());
+
+	//CreateRaytracingPipeline();
+}
+
+bool D3D12HelloTriangle::CheckRaytracingSupport()
+{
+   D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5 = {};
+   myDevice->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5,
+      &options5, sizeof(options5));
+   if (options5.RaytracingTier < D3D12_RAYTRACING_TIER_1_0)
+   {
+      std::cout << "Ray tracing not supported!";
+      return false;
+   }
+   return true;
+}
+
+void D3D12HelloTriangle::OnKeyUp(UINT8 key)
+{
+   m_raster = !m_raster;
 }
 
 // Load the rendering pipeline dependencies.
@@ -57,8 +230,8 @@ void D3D12HelloTriangle::LoadPipeline()
 
         ThrowIfFailed(D3D12CreateDevice(
             warpAdapter.Get(),
-            D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+           D3D_FEATURE_LEVEL_12_1,
+            IID_PPV_ARGS(&myDevice)
             ));
     }
     else
@@ -69,7 +242,7 @@ void D3D12HelloTriangle::LoadPipeline()
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),
             D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
+            IID_PPV_ARGS(&myDevice)
             ));
     }
 
@@ -78,7 +251,7 @@ void D3D12HelloTriangle::LoadPipeline()
     queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
     queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
-    ThrowIfFailed(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)));
+    ThrowIfFailed(myDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue)));
 
     // Describe and create the swap chain.
     DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
@@ -113,9 +286,9 @@ void D3D12HelloTriangle::LoadPipeline()
         rtvHeapDesc.NumDescriptors = FrameCount;
         rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        ThrowIfFailed(m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
+        ThrowIfFailed(myDevice->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap)));
 
-        m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        m_rtvDescriptorSize = myDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
     }
 
     // Create frame resources.
@@ -126,12 +299,12 @@ void D3D12HelloTriangle::LoadPipeline()
         for (UINT n = 0; n < FrameCount; n++)
         {
             ThrowIfFailed(m_swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargets[n])));
-            m_device->CreateRenderTargetView(m_renderTargets[n].Get(), nullptr, rtvHandle);
+            myDevice->CreateRenderTargetView(m_renderTargets[n].Get(), nullptr, rtvHandle);
             rtvHandle.Offset(1, m_rtvDescriptorSize);
         }
     }
 
-    ThrowIfFailed(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocator)));
+    ThrowIfFailed(myDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocator)));
 }
 
 // Load the sample assets.
@@ -145,7 +318,7 @@ void D3D12HelloTriangle::LoadAssets()
         ComPtr<ID3DBlob> signature;
         ComPtr<ID3DBlob> error;
         ThrowIfFailed(D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error));
-        ThrowIfFailed(m_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
+        ThrowIfFailed(myDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_rootSignature)));
     }
 
     // Create the pipeline state, which includes compiling and loading shaders.
@@ -185,15 +358,12 @@ void D3D12HelloTriangle::LoadAssets()
         psoDesc.NumRenderTargets = 1;
         psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
         psoDesc.SampleDesc.Count = 1;
-        ThrowIfFailed(m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
+        ThrowIfFailed(myDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState)));
     }
 
     // Create the command list.
-    ThrowIfFailed(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(), m_pipelineState.Get(), IID_PPV_ARGS(&m_commandList)));
+    ThrowIfFailed(myDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocator.Get(), m_pipelineState.Get(), IID_PPV_ARGS(&m_commandList)));
 
-    // Command lists are created in the recording state, but there is nothing
-    // to record yet. The main loop expects it to be closed, so close it now.
-    ThrowIfFailed(m_commandList->Close());
 
     // Create the vertex buffer.
     {
@@ -211,7 +381,7 @@ void D3D12HelloTriangle::LoadAssets()
         // recommended. Every time the GPU needs it, the upload heap will be marshalled 
         // over. Please read up on Default Heap usage. An upload heap is used here for 
         // code simplicity and because there are very few verts to actually transfer.
-        ThrowIfFailed(m_device->CreateCommittedResource(
+        ThrowIfFailed(myDevice->CreateCommittedResource(
             &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
             D3D12_HEAP_FLAG_NONE,
             &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
@@ -234,7 +404,7 @@ void D3D12HelloTriangle::LoadAssets()
 
     // Create synchronization objects and wait until assets have been uploaded to the GPU.
     {
-        ThrowIfFailed(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
+        ThrowIfFailed(myDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
         m_fenceValue = 1;
 
         // Create an event handle to use for frame synchronization.
@@ -305,13 +475,23 @@ void D3D12HelloTriangle::PopulateCommandList()
     m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
 
     // Record commands.
+    if (m_raster)
+    {
     const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
     m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
     m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
     m_commandList->DrawInstanced(3, 1, 0, 0);
+    }
+    else
+    {
+       const float clearColor[] = { 0.6f, 0.8f, 0.4f, 1.0f };
+       m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+    }
 
     // Indicate that the back buffer will now be used to present.
+
+    
     m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
 
     ThrowIfFailed(m_commandList->Close());

@@ -13,6 +13,15 @@
     <Filter Include="Assets\Shaders">
       <UniqueIdentifier>{8b0cb0c9-e0d8-4107-91c8-11654fac88e7}</UniqueIdentifier>
     </Filter>
+    <Filter Include="helper">
+      <UniqueIdentifier>{0051a083-a4f9-4ade-b9d5-465db693cd19}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="dxr">
+      <UniqueIdentifier>{e159a9fb-cd4e-46ac-bfde-00a3d8669890}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="dxr shaders">
+      <UniqueIdentifier>{8b1dc45c-1f5b-4ac5-a9b4-35295dfee968}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -33,6 +42,21 @@
     <ClInclude Include="Win32Application.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="BottomLevelASGenerator.h">
+      <Filter>dxr</Filter>
+    </ClInclude>
+    <ClInclude Include="RaytracingPipelineGenerator.h">
+      <Filter>dxr</Filter>
+    </ClInclude>
+    <ClInclude Include="RootSignatureGenerator.h">
+      <Filter>dxr</Filter>
+    </ClInclude>
+    <ClInclude Include="ShaderBindingTableGenerator.h">
+      <Filter>dxr</Filter>
+    </ClInclude>
+    <ClInclude Include="TopLevelASGenerator.h">
+      <Filter>dxr</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -50,10 +74,39 @@
     <ClCompile Include="Win32Application.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="BottomLevelASGenerator.cpp">
+      <Filter>dxr</Filter>
+    </ClCompile>
+    <ClCompile Include="RaytracingPipelineGenerator.cpp">
+      <Filter>dxr</Filter>
+    </ClCompile>
+    <ClCompile Include="RootSignatureGenerator.cpp">
+      <Filter>dxr</Filter>
+    </ClCompile>
+    <ClCompile Include="ShaderBindingTableGenerator.cpp">
+      <Filter>dxr</Filter>
+    </ClCompile>
+    <ClCompile Include="TopLevelASGenerator.cpp">
+      <Filter>dxr</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="shaders.hlsl">
       <Filter>Assets\Shaders</Filter>
     </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Common.hlsl">
+      <Filter>dxr shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Hit.hlsl">
+      <Filter>dxr shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Miss.hlsl">
+      <Filter>dxr shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="RayGen.hlsl">
+      <Filter>dxr shaders</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

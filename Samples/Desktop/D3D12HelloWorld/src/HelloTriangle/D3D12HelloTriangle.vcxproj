@@ -53,13 +53,14 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <CompileAsWinRT>false</CompileAsWinRT>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -112,6 +113,11 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="BottomLevelASGenerator.h" />
+    <ClInclude Include="RaytracingPipelineGenerator.h" />
+    <ClInclude Include="RootSignatureGenerator.h" />
+    <ClInclude Include="ShaderBindingTableGenerator.h" />
+    <ClInclude Include="TopLevelASGenerator.h" />
     <ClInclude Include="Win32Application.h" />
     <ClInclude Include="D3D12HelloTriangle.h" />
     <ClInclude Include="d3dx12.h" />
@@ -120,6 +126,11 @@
     <ClInclude Include="stdafx.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="BottomLevelASGenerator.cpp" />
+    <ClCompile Include="RaytracingPipelineGenerator.cpp" />
+    <ClCompile Include="RootSignatureGenerator.cpp" />
+    <ClCompile Include="ShaderBindingTableGenerator.cpp" />
+    <ClCompile Include="TopLevelASGenerator.cpp" />
     <ClCompile Include="Win32Application.cpp" />
     <ClCompile Include="D3D12HelloTriangle.cpp" />
     <ClCompile Include="DXSample.cpp" />
@@ -134,6 +145,20 @@
       <FileType>Document</FileType>
       <DeploymentContent>true</DeploymentContent>
     </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Common.hlsl">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </FxCompile>
+    <FxCompile Include="Hit.hlsl">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </FxCompile>
+    <FxCompile Include="Miss.hlsl">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </FxCompile>
+    <FxCompile Include="RayGen.hlsl">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </FxCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
