@@ -115,12 +115,15 @@ private:
 	ComPtr<ID3D12RootSignature> myRayGenSignature;
 	ComPtr<ID3D12RootSignature> myHitSignature;
 	ComPtr<ID3D12RootSignature> myMissSignature;
-
-	void CreateRaytracingPipeline(void);
-
 	ComPtr<IDxcBlob> myRayGenLibrary;
 	ComPtr<IDxcBlob> myHitLibrary;
 	ComPtr<IDxcBlob> myMissLibrary;
 
+	// Ray tracing pipeline state
+	ComPtr<ID3D12StateObject> myRayTracingStateObject;
+	// Ray tracing pipeline state properties, retaining the shader identifiers
+	// to use in the Shader Binding Table
+	ComPtr<ID3D12StateObjectProperties> myRayTracingStateObjectProperties;
 
+	void CreateRaytracingPipeline(void);
 };

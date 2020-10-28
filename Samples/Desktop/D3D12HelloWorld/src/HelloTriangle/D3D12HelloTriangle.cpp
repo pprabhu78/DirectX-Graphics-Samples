@@ -162,7 +162,52 @@ void D3D12HelloTriangle::CreateRaytracingPipeline(void)
 	myHitLibrary = nv_helpers_dx12::CompileShaderLibrary(L"Hit.hlsl");
 	myMissLibrary = nv_helpers_dx12::CompileShaderLibrary(L"Miss.hlsl");
 
-	nv_helpers_dx12::RayTracingPipelineGenerator pipeline(myDevice.Get());
+	// In a way similar to DLLs, each library is associated with a number of
+	// exported symbols. This
+	// has to be done explicitly in the lines below. Note that a single library
+	// can contain an arbitrary number of symbols, whose semantic is given in HLSL
+	// using the [shader("xxx")] syntax
+	nv_helpers_dx12::RayTracingPipelineGenerator pipeLineGenerator(myDevice.Get());
+	pipeLineGenerator.AddLibrary(myRayGenLibrary.Get(), { L"RayGen" });
+	pipeLineGenerator.AddLibrary(myHitLibrary.Get(), { L"ClosestHit" });
+	pipeLineGenerator.AddLibrary(myMissLibrary.Get(), { L"Miss" });
+
+	// To be used, each DX12 shader needs a root signature defining which
+	// parameters and buffers will be accessed.
+	myRayGenSignature = CreateRayGenSignature();
+	myHitSignature = CreateHitSignature();
+	myMissSignature = CreateMissSignature();
+
+	pipeLineGenerator.AddHitGroup(L"HitGroup", L"ClosestHit");
+
+	pipeLineGenerator.AddRootSignatureAssociation(myRayGenSignature.Get(), { L"RayGen" });
+	pipeLineGenerator.AddRootSignatureAssociation(myMissSignature.Get(), { L"Miss" });
+	pipeLineGenerator.AddRootSignatureAssociation(myHitSignature.Get(), { L"HitGroup" });
+
+	// The payload size defines the maximum size of the data carried by the rays,
+	// ie. the the data
+	// exchanged between shaders, such as the HitInfo structure in the HLSL code.
+	// It is important to keep this value as low as possible as a too high value
+	// would result in unnecessary memory consumption and cache trashing.
+	pipeLineGenerator.SetMaxPayloadSize(4 * sizeof(float)); // RGB + distance
+
+	// Upon hitting a surface, DXR can provide several attributes to the hit. In
+	// our sample we just use the barycentric coordinates defined by the weights
+	// u,v of the last two vertices of the triangle. The actual barycentrics can
+	// be obtained using float3 barycentrics = float3(1.f-u-v, u, v);
+	pipeLineGenerator.SetMaxAttributeSize(2 * sizeof(float)); // barycentric coordinates
+
+
+	// The raytracing process can shoot rays from existing hit points, resulting
+	// in nested TraceRay calls. Our sample code traces only primary rays, which
+	// then requires a trace depth of 1. Note that this recursion depth should be
+	// kept to a minimum for best performance. Path tracing algorithms can be
+	// easily flattened into a simple loop in the ray generation.
+	pipeLineGenerator.SetMaxRecursionDepth(1);
+
+	myRayTracingStateObject = pipeLineGenerator.Generate();
+
+	myRayTracingStateObject->QueryInterface(IID_PPV_ARGS(&myRayTracingStateObjectProperties));
 }
 
 void D3D12HelloTriangle::OnInit()
@@ -175,11 +220,12 @@ void D3D12HelloTriangle::OnInit()
     // geometry, each bottom-level AS has its own transform matrix.
     CreateAccelerationStructures();
 
+	CreateRaytracingPipeline();
+
 	// Command lists are created in the recording state, but there is nothing
     // to record yet. The main loop expects it to be closed, so close it now.
     ThrowIfFailed(m_commandList->Close());
 
-	//CreateRaytracingPipeline();
 }
 
 bool D3D12HelloTriangle::CheckRaytracingSupport()
