@@ -15,6 +15,7 @@
 
 #include "TopLevelASGenerator.h"
 #include "BottomLevelASGenerator.h"
+#include "ShaderBindingTableGenerator.h"
 
 #include <dxcapi.h>
 
@@ -129,5 +130,9 @@ private:
 	ComPtr<ID3D12Resource> m_outputResource;
 
 	void CreateShaderResourceHeap(void);
-	ComPtr<ID3D12DescriptorHeap> mySrvHeap;
+	ComPtr<ID3D12DescriptorHeap> mySrvUavHeap;
+
+	void CreateShaderBindingTable();
+	nv_helpers_dx12::ShaderBindingTableGenerator myShaderBindingTableGenerator;
+	ComPtr<ID3D12Resource> myShaderBindingTableStorage;
 };

@@ -233,13 +233,13 @@ void D3D12HelloTriangle::CreateRaytracingOutputBuffer()
 
 void D3D12HelloTriangle::CreateShaderResourceHeap(void)
 {
-	mySrvHeap = nv_helpers_dx12::CreateDescriptorHeap(
+	mySrvUavHeap = nv_helpers_dx12::CreateDescriptorHeap(
 		myDevice.Get(), 2, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true);
 
 	// Get a handle to the heap memory on the CPU side, to be able to write the
 	// descriptors directly
 	D3D12_CPU_DESCRIPTOR_HANDLE srvHandle =
-		mySrvHeap->GetCPUDescriptorHandleForHeapStart();
+		mySrvUavHeap->GetCPUDescriptorHandleForHeapStart();
 
 	// Create the UAV. Based on the root signature we created it is the first
 	// entry. The Create*View methods write the view information directly into
@@ -262,6 +262,30 @@ void D3D12HelloTriangle::CreateShaderResourceHeap(void)
 	myDevice->CreateShaderResourceView(nullptr, &srvDesc, srvHandle);
 }
 
+void D3D12HelloTriangle::CreateShaderBindingTable()
+{
+	myShaderBindingTableGenerator.Reset();
+
+	D3D12_GPU_DESCRIPTOR_HANDLE srvUavHeapHandle =
+		mySrvUavHeap->GetGPUDescriptorHandleForHeapStart();
+
+	auto heapPointer = reinterpret_cast<std::uint64_t*>(srvUavHeapHandle.ptr);
+
+	myShaderBindingTableGenerator.AddRayGenerationProgram(L"RayGen", { heapPointer });
+	myShaderBindingTableGenerator.AddMissProgram(L"Miss", {});
+	myShaderBindingTableGenerator.AddHitGroup(L"HitGroup", {});
+
+	std::uint32_t sbtSize = myShaderBindingTableGenerator.ComputeSBTSize();
+	myShaderBindingTableStorage = nv_helpers_dx12::CreateBuffer(
+		myDevice.Get(), sbtSize, D3D12_RESOURCE_FLAG_NONE,
+		D3D12_RESOURCE_STATE_GENERIC_READ, nv_helpers_dx12::kUploadHeapProps);
+	if (!myShaderBindingTableStorage) {
+		throw std::logic_error("Could not allocate the shader binding table");
+	}
+
+	myShaderBindingTableGenerator.Generate(myShaderBindingTableStorage.Get(), myRayTracingStateObjectProperties.Get());
+}
+
 void D3D12HelloTriangle::OnInit()
 {
     LoadPipeline();
@@ -277,6 +301,8 @@ void D3D12HelloTriangle::OnInit()
 	CreateRaytracingOutputBuffer();
 
 	CreateShaderResourceHeap();
+
+	CreateShaderBindingTable();
 
 	// Command lists are created in the recording state, but there is nothing
     // to record yet. The main loop expects it to be closed, so close it now.
