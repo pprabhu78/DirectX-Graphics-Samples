@@ -138,6 +138,7 @@ ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateRayGenSignature(void)
 ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateHitSignature(void)
 {
    nv_helpers_dx12::RootSignatureGenerator generator;
+   generator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV);
    return generator.Generate(myDevice.Get(), true);
 }
 
@@ -273,7 +274,7 @@ void D3D12HelloTriangle::CreateShaderBindingTable()
 
    myShaderBindingTableGenerator.AddRayGenerationProgram(L"RayGen", { heapPointer });
    myShaderBindingTableGenerator.AddMissProgram(L"Miss", {});
-   myShaderBindingTableGenerator.AddHitGroup(L"HitGroup", {});
+   myShaderBindingTableGenerator.AddHitGroup(L"HitGroup", { (void*)myVertexBuffer->GetGPUVirtualAddress()});
 
    std::uint32_t sbtSize = myShaderBindingTableGenerator.ComputeSBTSize();
    myShaderBindingTableStorage = nv_helpers_dx12::CreateBuffer(
@@ -499,9 +500,9 @@ void D3D12HelloTriangle::LoadAssets()
       // Define the geometry for a triangle.
       Vertex triangleVertices[] =
       {
-      { { 0.0f, 0.25f * m_aspectRatio, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-      { { 0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-      { { -0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
+      { { 0.0f, 0.25f * m_aspectRatio, 0.0f }, { 1.0f, 1.0f, 0.0f, 1.0f } },
+      { { 0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
+      { { -0.25f, -0.25f * m_aspectRatio, 0.0f }, { 1.0f, 0.0f, 1.0f, 1.0f } }
       };
 
       const UINT vertexBufferSize = sizeof(triangleVertices);
