@@ -15,11 +15,21 @@ struct PSInput
     float4 color : COLOR;
 };
 
+// perspective camera
+cbuffer CameraParams : register(b0)
+{
+   float4x4 view;
+   float4x4 projection;
+}
+
 PSInput VSMain(float4 position : POSITION, float4 color : COLOR)
 {
     PSInput result;
 
-    result.position = position;
+    float4 mvp = mul(view, position);
+    mvp = mul(projection, mvp);
+
+    result.position = mvp;
     result.color = color;
 
     return result;

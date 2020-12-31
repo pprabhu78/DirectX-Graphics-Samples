@@ -65,7 +65,10 @@ private:
 
     // App resources.
     ComPtr<ID3D12Resource> myVertexBuffer;
-    D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
+    D3D12_VERTEX_BUFFER_VIEW myVertexBufferView;
+
+    ComPtr<ID3D12Resource> myPlaneVertexBuffer;
+    D3D12_VERTEX_BUFFER_VIEW myPlaneVertexBufferView;
 
     // Synchronization objects.
     UINT m_frameIndex;
@@ -135,4 +138,18 @@ private:
 	void CreateShaderBindingTable();
 	nv_helpers_dx12::ShaderBindingTableGenerator myShaderBindingTableGenerator;
 	ComPtr<ID3D12Resource> myShaderBindingTableStorage;
+
+   void createTrianglesVertexBuffer(void);
+   void createPlaneVertexBuffer(void);
+
+   // camera stufff
+   void CreateCameraBuffer();
+   void UpdateCameraBuffer();
+   ComPtr<ID3D12Resource> myCameraBuffer;
+   uint32_t myCameraBufferSize;
+
+   ComPtr<ID3D12DescriptorHeap > myConstHeap;
+
+   void OnButtonDown(UINT32 lParam) override;
+   void OnMouseMove(UINT8 wParam, UINT32 lParam) override;
 };

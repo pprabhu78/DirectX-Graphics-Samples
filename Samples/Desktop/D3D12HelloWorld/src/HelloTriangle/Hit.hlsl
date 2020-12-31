@@ -19,12 +19,21 @@ void ClosestHit(inout HitInfo payload, Attributes attrib)
    const float3 B = float3(0, 1, 0);
    const float3 C = float3(0, 0, 1);
 
-
    uint vertId = 3 * PrimitiveIndex();
 
-   float3 hitColor = vertices[vertId + 0].color.xyz * barycentrics.x
-      + vertices[vertId + 1].color.xyz * barycentrics.y
-      + vertices[vertId + 2].color.xyz * barycentrics.z;
+   float3 hitColor = float3(0.7, 0.7, 0.7);
+   switch (InstanceID())
+   {
+   case 0: 
+      hitColor = A * barycentrics.x + B * barycentrics.y + C * barycentrics.z;
+      break;
+   case 1:
+      hitColor = B * barycentrics.x + B * barycentrics.y + C * barycentrics.z;
+      break;
+   case 2:
+      hitColor = C * barycentrics.x + B * barycentrics.y + C * barycentrics.z;
+      break;
+   }
 
    payload.colorAndDistance = float4(hitColor, RayTCurrent());
 }

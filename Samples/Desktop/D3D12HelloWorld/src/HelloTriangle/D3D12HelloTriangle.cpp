@@ -96,8 +96,14 @@ void D3D12HelloTriangle::CreateTopLevelAS(VectorInstances& instances)
 
 void D3D12HelloTriangle::CreateAccelerationStructures()
 {
-   AccelerationStructureBuffer blas = createBottomLevelAS({ { myVertexBuffer.Get(), 3 } });
-   myInstances = { {blas.pResult, XMMatrixIdentity()} };
+   AccelerationStructureBuffer trianglesBlas = createBottomLevelAS({ { myVertexBuffer.Get(), 3 } });
+   AccelerationStructureBuffer planeBlas = createBottomLevelAS({ { myPlaneVertexBuffer.Get(), 6 } });
+
+   myInstances = { {trianglesBlas.pResult, XMMatrixIdentity()}
+      , {trianglesBlas.pResult, XMMatrixTranslation(-0.6f, 0, 0) }
+      , {trianglesBlas.pResult, XMMatrixTranslation(+0.6f, 0, 0) }
+      , {planeBlas.pResult, XMMatrixTranslation(0, 0, 0) }
+       };
    CreateTopLevelAS(myInstances);
 
    // Flush the command list and wait for it to finish
@@ -117,15 +123,16 @@ void D3D12HelloTriangle::CreateAccelerationStructures()
 
    // Store the AS buffers. The rest of the buffers will be released once we exit
    // the function
-   myBlas = blas.pResult;
+   myBlas = trianglesBlas.pResult;
 }
 
 ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateRayGenSignature(void)
 {
    nv_helpers_dx12::RootSignatureGenerator generator;
    generator.AddHeapRangesParameter({
-   { 0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0}
- , { 0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1 }
+   { 0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0} // uav for the output buffer
+ , { 0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1 } // src for the tlas
+ , { 0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2 } // src for the constant bffer/camera parameters
    }
    );
    return generator.Generate(myDevice.Get(), true);
@@ -235,32 +242,37 @@ void D3D12HelloTriangle::CreateRaytracingOutputBuffer()
 void D3D12HelloTriangle::CreateShaderResourceHeap(void)
 {
    mySrvUavHeap = nv_helpers_dx12::CreateDescriptorHeap(
-      myDevice.Get(), 2, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true);
+      myDevice.Get(), 3, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true);
 
    // Get a handle to the heap memory on the CPU side, to be able to write the
    // descriptors directly
-   D3D12_CPU_DESCRIPTOR_HANDLE srvHandle =
-      mySrvUavHeap->GetCPUDescriptorHandleForHeapStart();
+   D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = mySrvUavHeap->GetCPUDescriptorHandleForHeapStart();
 
    // Create the UAV. Based on the root signature we created it is the first
    // entry. The Create*View methods write the view information directly into
    // srvHandle
    D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
    uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-   myDevice->CreateUnorderedAccessView(myRayTracingOutputBuffer.Get(), nullptr, &uavDesc,
-      srvHandle);
+   myDevice->CreateUnorderedAccessView(myRayTracingOutputBuffer.Get(), nullptr, &uavDesc, srvHandle);
 
    // Add the Top Level AS SRV right after the raytracing output buffer
-   srvHandle.ptr += myDevice->GetDescriptorHandleIncrementSize(
-      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+   srvHandle.ptr += myDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc;
    srvDesc.Format = DXGI_FORMAT_UNKNOWN;
    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-   srvDesc.RaytracingAccelerationStructure.Location =
-      myTLAS.pResult->GetGPUVirtualAddress();
+   srvDesc.RaytracingAccelerationStructure.Location = myTLAS.pResult->GetGPUVirtualAddress();
+
    // Write the acceleration structure view in the heap
    myDevice->CreateShaderResourceView(nullptr, &srvDesc, srvHandle);
+
+   srvHandle.ptr += myDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+   D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+   cbvDesc.BufferLocation = myCameraBuffer->GetGPUVirtualAddress();
+   cbvDesc.SizeInBytes = myCameraBufferSize;
+
+   myDevice->CreateConstantBufferView(&cbvDesc, srvHandle);
 }
 
 void D3D12HelloTriangle::CreateShaderBindingTable()
@@ -287,6 +299,51 @@ void D3D12HelloTriangle::CreateShaderBindingTable()
    myShaderBindingTableGenerator.Generate(myShaderBindingTableStorage.Get(), myRayTracingStateObjectProperties.Get());
 }
 
+void D3D12HelloTriangle::CreateCameraBuffer()
+{
+   uint32_t numMatrices = 4;
+   myCameraBufferSize = numMatrices * sizeof(XMMATRIX);
+
+   myCameraBuffer = nv_helpers_dx12::CreateBuffer(myDevice.Get(), myCameraBufferSize, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ
+      , nv_helpers_dx12::kUploadHeapProps);
+
+   myConstHeap = nv_helpers_dx12::CreateDescriptorHeap(
+      myDevice.Get(), 1, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true);
+
+   D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+   cbvDesc.BufferLocation = myCameraBuffer->GetGPUVirtualAddress();
+   cbvDesc.SizeInBytes = myCameraBufferSize;
+
+   // Get a handle to the heap memory on the CPU side, to be able to write the
+   // descriptors directly
+   D3D12_CPU_DESCRIPTOR_HANDLE srvHandle =
+   myConstHeap->GetCPUDescriptorHandleForHeapStart();
+   myDevice->CreateConstantBufferView(&cbvDesc, srvHandle);
+}
+
+void D3D12HelloTriangle::UpdateCameraBuffer()
+{
+   std::vector<XMMATRIX> matrices(4);
+   XMVECTOR eye = XMVectorSet(1.5f, 1.5f, 1.5f, 0.0f);
+   XMVECTOR lookAt = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
+   XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+
+   matrices[0] = XMMatrixLookAtRH(eye, lookAt, up);
+
+   float fovAngleY = 45.0f * XM_PI / 180.0f;
+   matrices[1] =
+      XMMatrixPerspectiveFovRH(fovAngleY, m_aspectRatio, 0.1f, 1000.0f);
+
+   XMVECTOR det;
+   matrices[2] = XMMatrixInverse(&det, matrices[0]);
+   matrices[3] = XMMatrixInverse(&det, matrices[1]);
+
+   uint8_t *pData;
+   myCameraBuffer->Map(0, nullptr, (void **)&pData);
+   memcpy(pData, matrices.data(), myCameraBufferSize);
+   myCameraBuffer->Unmap(0, nullptr);
+}
+
 void D3D12HelloTriangle::OnInit()
 {
    LoadPipeline();
@@ -301,6 +358,8 @@ void D3D12HelloTriangle::OnInit()
    CreateRaytracingPipeline();
 
    CreateRaytracingOutputBuffer();
+
+   CreateCameraBuffer();
 
    CreateShaderResourceHeap();
 
@@ -437,13 +496,97 @@ void D3D12HelloTriangle::LoadPipeline()
    ThrowIfFailed(myDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocator)));
 }
 
+void D3D12HelloTriangle::createTrianglesVertexBuffer(void)
+{      
+   // Define the geometry for a triangle.
+   Vertex triangleVertices[] =
+   {
+   { { 0.0f, 0.25f * m_aspectRatio, 0.0f }, { 1.0f, 1.0f, 0.0f, 1.0f } },
+   { { 0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
+   { { -0.25f, -0.25f * m_aspectRatio, 0.0f }, { 1.0f, 0.0f, 1.0f, 1.0f } }
+   };
+
+   const UINT vertexBufferSize = sizeof(triangleVertices);
+
+   // Note: using upload heaps to transfer static data like vert buffers is not 
+   // recommended. Every time the GPU needs it, the upload heap will be marshalled 
+   // over. Please read up on Default Heap usage. An upload heap is used here for 
+   // code simplicity and because there are very few verts to actually transfer.
+   ThrowIfFailed(myDevice->CreateCommittedResource(
+      &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+      D3D12_HEAP_FLAG_NONE,
+      &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
+      D3D12_RESOURCE_STATE_GENERIC_READ,
+      nullptr,
+      IID_PPV_ARGS(&myVertexBuffer)));
+
+   // Copy the triangle data to the vertex buffer.
+   UINT8* pVertexDataBegin;
+   CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
+   ThrowIfFailed(myVertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin)));
+   memcpy(pVertexDataBegin, triangleVertices, sizeof(triangleVertices));
+   myVertexBuffer->Unmap(0, nullptr);
+
+   // Initialize the vertex buffer view.
+   myVertexBufferView.BufferLocation = myVertexBuffer->GetGPUVirtualAddress();
+   myVertexBufferView.StrideInBytes = sizeof(Vertex);
+   myVertexBufferView.SizeInBytes = vertexBufferSize;
+
+}
+void D3D12HelloTriangle::createPlaneVertexBuffer(void)
+{
+   // Define the geometry for a plane.
+   Vertex planeVertices[] = {
+       {{-1.5f, -.8f, 01.5f}, {1.0f, 1.0f, 1.0f, 1.0f}}, // 0
+       {{-1.5f, -.8f, -1.5f}, {1.0f, 1.0f, 1.0f, 1.0f}}, // 1
+       {{01.5f, -.8f, 01.5f}, {1.0f, 1.0f, 1.0f, 1.0f}}, // 2
+       {{01.5f, -.8f, 01.5f}, {1.0f, 1.0f, 1.0f, 1.0f}}, // 2
+       {{-1.5f, -.8f, -1.5f}, {1.0f, 1.0f, 1.0f, 1.0f}}, // 1
+       {{01.5f, -.8f, -1.5f}, {1.0f, 1.0f, 1.0f, 1.0f}}  // 4
+   };
+
+
+   const UINT planeVertexBufferSize = sizeof(planeVertices);
+
+   // Note: using upload heaps to transfer static data like vert buffers is not 
+   // recommended. Every time the GPU needs it, the upload heap will be marshalled 
+   // over. Please read up on Default Heap usage. An upload heap is used here for 
+   // code simplicity and because there are very few verts to actually transfer.
+   myDevice->CreateCommittedResource(
+      &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+      D3D12_HEAP_FLAG_NONE,
+      &CD3DX12_RESOURCE_DESC::Buffer(planeVertexBufferSize),
+      D3D12_RESOURCE_STATE_GENERIC_READ,
+      nullptr,
+      IID_PPV_ARGS(&myPlaneVertexBuffer));
+
+   // Copy the triangle data to the vertex buffer.
+   UINT8* pVertexDataBegin;
+   CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
+   myPlaneVertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin));
+   memcpy(pVertexDataBegin, planeVertices, sizeof(planeVertices));
+   myPlaneVertexBuffer->Unmap(0, nullptr);
+
+   // Initialize the vertex buffer view.
+   myPlaneVertexBufferView.BufferLocation = myPlaneVertexBuffer->GetGPUVirtualAddress();
+   myPlaneVertexBufferView.StrideInBytes = sizeof(Vertex);
+   myPlaneVertexBufferView.SizeInBytes = planeVertexBufferSize;
+}
+
 // Load the sample assets.
 void D3D12HelloTriangle::LoadAssets()
 {
    // Create an empty root signature.
    {
+
+      CD3DX12_ROOT_PARAMETER constantParameter;
+      CD3DX12_DESCRIPTOR_RANGE range;
+      range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0);
+      constantParameter.InitAsDescriptorTable(1, &range, D3D12_SHADER_VISIBILITY_ALL);
+
+
       CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-      rootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+      rootSignatureDesc.Init(1, &constantParameter, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
       ComPtr<ID3DBlob> signature;
       ComPtr<ID3DBlob> error;
@@ -496,41 +639,10 @@ void D3D12HelloTriangle::LoadAssets()
 
 
    // Create the vertex buffer.
-   {
-      // Define the geometry for a triangle.
-      Vertex triangleVertices[] =
-      {
-      { { 0.0f, 0.25f * m_aspectRatio, 0.0f }, { 1.0f, 1.0f, 0.0f, 1.0f } },
-      { { 0.25f, -0.25f * m_aspectRatio, 0.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
-      { { -0.25f, -0.25f * m_aspectRatio, 0.0f }, { 1.0f, 0.0f, 1.0f, 1.0f } }
-      };
-
-      const UINT vertexBufferSize = sizeof(triangleVertices);
-
-      // Note: using upload heaps to transfer static data like vert buffers is not 
-      // recommended. Every time the GPU needs it, the upload heap will be marshalled 
-      // over. Please read up on Default Heap usage. An upload heap is used here for 
-      // code simplicity and because there are very few verts to actually transfer.
-      ThrowIfFailed(myDevice->CreateCommittedResource(
-         &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-         D3D12_HEAP_FLAG_NONE,
-         &CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize),
-         D3D12_RESOURCE_STATE_GENERIC_READ,
-         nullptr,
-         IID_PPV_ARGS(&myVertexBuffer)));
-
-      // Copy the triangle data to the vertex buffer.
-      UINT8* pVertexDataBegin;
-      CD3DX12_RANGE readRange(0, 0);        // We do not intend to read from this resource on the CPU.
-      ThrowIfFailed(myVertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin)));
-      memcpy(pVertexDataBegin, triangleVertices, sizeof(triangleVertices));
-      myVertexBuffer->Unmap(0, nullptr);
-
-      // Initialize the vertex buffer view.
-      m_vertexBufferView.BufferLocation = myVertexBuffer->GetGPUVirtualAddress();
-      m_vertexBufferView.StrideInBytes = sizeof(Vertex);
-      m_vertexBufferView.SizeInBytes = vertexBufferSize;
-   }
+   createTrianglesVertexBuffer();
+   
+   // create the plane vertex buffer
+   createPlaneVertexBuffer();
 
    // Create synchronization objects and wait until assets have been uploaded to the GPU.
    {
@@ -554,6 +666,7 @@ void D3D12HelloTriangle::LoadAssets()
 // Update frame-based values.
 void D3D12HelloTriangle::OnUpdate()
 {
+   UpdateCameraBuffer();
 }
 
 // Render the scene.
@@ -607,11 +720,22 @@ void D3D12HelloTriangle::PopulateCommandList()
    // Record commands.
    if (m_raster)
    {
+
+      // #DXR Extra: Perspective Camera
+      std::vector< ID3D12DescriptorHeap* > heaps = { myConstHeap.Get() };
+      myCommandList->SetDescriptorHeaps(static_cast<unsigned int>(heaps.size()), heaps.data());
+      // set the root descriptor table 0 to the constant buffer descriptor heap
+      myCommandList->SetGraphicsRootDescriptorTable(
+         0, myConstHeap->GetGPUDescriptorHandleForHeapStart());
+
       const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
       myCommandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
       myCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-      myCommandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
+      myCommandList->IASetVertexBuffers(0, 1, &myVertexBufferView);
       myCommandList->DrawInstanced(3, 1, 0, 0);
+
+      myCommandList->IASetVertexBuffers(0, 1, &myPlaneVertexBufferView);
+      myCommandList->DrawInstanced(6, 1, 0, 0);
    }
    else
    {
@@ -674,12 +798,18 @@ void D3D12HelloTriangle::PopulateCommandList()
 
    }
 
-
-
-
    myCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
 
    ThrowIfFailed(myCommandList->Close());
+}
+
+void D3D12HelloTriangle::OnButtonDown(UINT32 lParam)
+{
+
+}
+void D3D12HelloTriangle::OnMouseMove(UINT8 wParam, UINT32 lParam)
+{
+
 }
 
 void D3D12HelloTriangle::WaitForPreviousFrame()

@@ -101,6 +101,21 @@ LRESULT CALLBACK Win32Application::WindowProc(HWND hWnd, UINT message, WPARAM wP
         }
         return 0;
 
+    case WM_LBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+    case WM_MBUTTONDOWN:
+       if (pSample)
+       {
+          pSample->OnButtonDown(static_cast<std::uint32_t>(lParam));
+       }
+       return 0;
+    case WM_MOUSEMOVE:
+       if (pSample)
+       {
+          pSample->OnMouseMove(static_cast<uint8_t>(wParam), static_cast<uint32_t>(lParam));
+       }
+       return 0;
+
     case WM_PAINT:
         if (pSample)
         {
