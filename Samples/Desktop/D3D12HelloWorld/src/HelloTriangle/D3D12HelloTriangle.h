@@ -60,11 +60,11 @@ private:
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     ComPtr<ID3D12PipelineState> m_pipelineState;
     ComPtr<ID3D12Device5> myDevice;
-    ComPtr<ID3D12GraphicsCommandList4> m_commandList;
+    ComPtr<ID3D12GraphicsCommandList4> myCommandList;
     UINT m_rtvDescriptorSize;
 
     // App resources.
-    ComPtr<ID3D12Resource> m_vertexBuffer;
+    ComPtr<ID3D12Resource> myVertexBuffer;
     D3D12_VERTEX_BUFFER_VIEW m_vertexBufferView;
 
     // Synchronization objects.
@@ -127,7 +127,7 @@ private:
 	void CreateRaytracingPipeline(void);
 
 	void CreateRaytracingOutputBuffer();
-	ComPtr<ID3D12Resource> m_outputResource;
+	ComPtr<ID3D12Resource> myRayTracingOutputBuffer;
 
 	void CreateShaderResourceHeap(void);
 	ComPtr<ID3D12DescriptorHeap> mySrvUavHeap;
