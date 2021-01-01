@@ -178,7 +178,7 @@ void D3D12HelloTriangle::CreateRaytracingPipeline(void)
    // using the [shader("xxx")] syntax
    nv_helpers_dx12::RayTracingPipelineGenerator pipeLineGenerator(myDevice.Get());
    pipeLineGenerator.AddLibrary(myRayGenLibrary.Get(), { L"RayGen" });
-   pipeLineGenerator.AddLibrary(myHitLibrary.Get(), { L"ClosestHit" });
+   pipeLineGenerator.AddLibrary(myHitLibrary.Get(), { L"ClosestHit", L"PlaneClosestHit" });
    pipeLineGenerator.AddLibrary(myMissLibrary.Get(), { L"Miss" });
 
    // To be used, each DX12 shader needs a root signature defining which
@@ -188,10 +188,11 @@ void D3D12HelloTriangle::CreateRaytracingPipeline(void)
    myMissSignature = CreateMissSignature();
 
    pipeLineGenerator.AddHitGroup(L"HitGroup", L"ClosestHit");
+   pipeLineGenerator.AddHitGroup(L"PlaneHitGroup", L"PlaneClosestHit");
 
    pipeLineGenerator.AddRootSignatureAssociation(myRayGenSignature.Get(), { L"RayGen" });
    pipeLineGenerator.AddRootSignatureAssociation(myMissSignature.Get(), { L"Miss" });
-   pipeLineGenerator.AddRootSignatureAssociation(myHitSignature.Get(), { L"HitGroup" });
+   pipeLineGenerator.AddRootSignatureAssociation(myHitSignature.Get(), { L"HitGroup", L"PlaneHitGroup" });
 
    // The payload size defines the maximum size of the data carried by the rays,
    // ie. the the data
@@ -287,11 +288,13 @@ void D3D12HelloTriangle::CreateShaderBindingTable()
 
    myShaderBindingTableGenerator.AddRayGenerationProgram(L"RayGen", { heapPointer });
    myShaderBindingTableGenerator.AddMissProgram(L"Miss", {});
-   for (int i = 0; i < 4; ++i)
+   for (int i = 0; i < 3; ++i)
    {
       myShaderBindingTableGenerator.AddHitGroup(L"HitGroup", { (void*)myVertexBuffer->GetGPUVirtualAddress()
   , (void*)myPerInstanceConstantBuffers[i]->GetGPUVirtualAddress() });
    }
+
+   myShaderBindingTableGenerator.AddHitGroup(L"PlaneHitGroup", {});
 
 
    std::uint32_t sbtSize = myShaderBindingTableGenerator.ComputeSBTSize();
