@@ -66,7 +66,7 @@ void D3D12HelloTriangle::CreateTopLevelAS(VectorInstances& instances)
    for (int i = 0; i < instances.size(); ++i)
    {
       const std::pair< ComPtr<ID3D12Resource>, DirectX::XMMATRIX >& instance = instances[i];
-      myTopLevelGenerator.AddInstance(instance.first.Get(), instance.second, i, 0);
+      myTopLevelGenerator.AddInstance(instance.first.Get(), instance.second, i, i);
    }
 
    std::uint64_t scratchSizeInBytes = 0;
@@ -132,7 +132,7 @@ ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateRayGenSignature(void)
    generator.AddHeapRangesParameter({
    { 0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0} // uav for the output buffer
  , { 0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1 } // src for the tlas
- , { 0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2 } // src for the constant bffer/camera parameters
+ , { 0, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 2 } // src for the constant buffer/camera parameters
    }
    );
    return generator.Generate(myDevice.Get(), true);
@@ -146,6 +146,7 @@ ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateHitSignature(void)
 {
    nv_helpers_dx12::RootSignatureGenerator generator;
    generator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_SRV);
+   generator.AddRootParameter(D3D12_ROOT_PARAMETER_TYPE_CBV, 0);
    return generator.Generate(myDevice.Get(), true);
 }
 
@@ -286,7 +287,12 @@ void D3D12HelloTriangle::CreateShaderBindingTable()
 
    myShaderBindingTableGenerator.AddRayGenerationProgram(L"RayGen", { heapPointer });
    myShaderBindingTableGenerator.AddMissProgram(L"Miss", {});
-   myShaderBindingTableGenerator.AddHitGroup(L"HitGroup", { (void*)myVertexBuffer->GetGPUVirtualAddress()});
+   for (int i = 0; i < 4; ++i)
+   {
+      myShaderBindingTableGenerator.AddHitGroup(L"HitGroup", { (void*)myVertexBuffer->GetGPUVirtualAddress()
+  , (void*)myPerInstanceConstantBuffers[i]->GetGPUVirtualAddress() });
+   }
+
 
    std::uint32_t sbtSize = myShaderBindingTableGenerator.ComputeSBTSize();
    myShaderBindingTableStorage = nv_helpers_dx12::CreateBuffer(
@@ -320,6 +326,32 @@ void D3D12HelloTriangle::CreateCameraBuffer()
    myConstHeap->GetCPUDescriptorHandleForHeapStart();
    myDevice->CreateConstantBufferView(&cbvDesc, srvHandle);
 }
+
+void D3D12HelloTriangle::CreatePerInstanceConstantBuffers()
+{
+   XMVECTOR bufferData[] = {
+      XMVECTOR{1.0f, 1.0f, 0.0f, 1.0f},
+      XMVECTOR{0.0f, 1.0f, 1.0f, 1.0f},
+      XMVECTOR{1.0f, 0.0f, 1.0f, 1.0f},
+      XMVECTOR{0.0f, 0.0f, 1.0f, 1.0f},
+   };
+
+   myPerInstanceConstantBuffers.resize(4);
+   const std::uint32_t bufferSize = sizeof(XMVECTOR);
+   int i = 0;
+   for (auto& cb : myPerInstanceConstantBuffers)
+   {
+      cb = nv_helpers_dx12::CreateBuffer(myDevice.Get(), bufferSize, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ
+         , nv_helpers_dx12::kUploadHeapProps);
+
+      uint8_t *pData;
+      cb->Map(0, nullptr, (void **)&pData);
+      memcpy(pData, &bufferData[i], bufferSize);
+      cb->Unmap(0, nullptr);
+      ++i;
+   }
+}
+
 
 void D3D12HelloTriangle::UpdateCameraBuffer()
 {
@@ -360,6 +392,8 @@ void D3D12HelloTriangle::OnInit()
    CreateRaytracingOutputBuffer();
 
    CreateCameraBuffer();
+
+   CreatePerInstanceConstantBuffers();
 
    CreateShaderResourceHeap();
 

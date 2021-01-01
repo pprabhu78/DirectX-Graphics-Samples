@@ -148,6 +148,9 @@ private:
    ComPtr<ID3D12Resource> myCameraBuffer;
    uint32_t myCameraBufferSize;
 
+   void CreatePerInstanceConstantBuffers();
+   std::vector< ComPtr<ID3D12Resource> > myPerInstanceConstantBuffers;
+
    ComPtr<ID3D12DescriptorHeap > myConstHeap;
 
    void OnButtonDown(UINT32 lParam) override;

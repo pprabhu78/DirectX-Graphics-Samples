@@ -6,8 +6,7 @@ RWTexture2D< float4 > gOutput : register(u0);
 // Raytracing acceleration structure, accessed as a SRV
 RaytracingAccelerationStructure SceneBVH : register(t0);
 
-
-cbuffer CameraParams : register(b0)
+cbuffer CameraBuffer : register(b0)
 {
    float4x4 view;
    float4x4 projection;
